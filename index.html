@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoENSTds - Digital Colorimetric Sensor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        #file-input { display: none; }
+        input[type="number"] { -moz-appearance: textfield; }
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        /* Slider Styles */
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #818cf8; cursor: pointer; border-radius: 50%; border: 2px solid white; transition: background-color 0.2s, transform 0.2s; }
+        input[type="range"]::-webkit-slider-thumb:hover { background: #6366f1; transform: scale(1.1); }
+        input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; background: #818cf8; cursor: pointer; border-radius: 50%; border: 2px solid white; }
+
+        /* Loupe Styles */
+        #loupe-container { position: absolute; width: 120px; height: 120px; border-radius: 50%; border: 3px solid white; box-shadow: 0 5px 20px rgba(0,0,0,0.6); overflow: hidden; pointer-events: none; display: none; background-color: #1f2937; z-index: 50; transform: translate(var(--loupe-offset-x, -50%), var(--loupe-offset-y, -50%)); transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
+        #loupe-canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+        #loupe-crosshair { position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); }
+        #loupe-crosshair::before, #loupe-crosshair::after { content: ''; position: absolute; background-color: rgba(255, 255, 255, 0.8); box-shadow: 0 0 3px rgba(0,0,0,0.8); }
+        #loupe-crosshair::before { top: 0; left: 50%; width: 2px; height: 100%; transform: translateX(-50%); }
+        #loupe-crosshair::after { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+
+        /* Gauge Animation */
+        #gauge-progress { transition: stroke-dashoffset 1.5s cubic-bezier(0.23, 1, 0.32, 1); }
+        #gauge-background.draw { animation: draw-stroke 1s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+        @keyframes draw-stroke { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+        
+        /* Modal & Tooltip Styles */
+        #info-modal.hidden, #info-modal .modal-content.hidden, #radius-tooltip.hidden { opacity: 0; transform: scale(0.95); pointer-events: none; }
+        #info-modal, #info-modal .modal-content, #radius-tooltip { transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out; }
+        #info-modal-content > h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 1rem; }
+        #info-modal-content > p { margin-bottom: 0.5rem; color: #d1d5db; }
+        #info-modal-content > ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
+        #info-modal-content code { background-color: #374151; padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-family: monospace; }
+        
+        /* Step Transitions & Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .step-content { animation: fadeIn 0.5s cubic-bezier(0.23, 1, 0.32, 1); }
+        .step-node-active { transform: scale(1.1); box-shadow: 0 0 15px rgba(129, 140, 248, 0.6); }
+
+        /* Result Comparison Animation */
+        @keyframes fade-up-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-20px); } }
+        .comparison-indicator { animation: fade-up-out 1.5s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-4 antialiased">
+
+    <div class="w-full max-w-md mx-auto bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+        <!-- Header / Progress Bar -->
+        <header class="p-6 border-b border-gray-700">
+            <h1 class="text-2xl font-bold text-center mb-1 text-indigo-400 tracking-wider">CoENSTds</h1>
+            <p class="text-xs text-center text-gray-400 mb-4">Colorimetric Estimation & Sensing Toolkit</p>
+            <div class="flex justify-between items-center">
+                <div class="flex-1 flex flex-col items-center relative">
+                    <div id="step-node-1" class="w-8 h-8 rounded-full flex items-center justify-center font-bold z-10 transition-all duration-300">1</div>
+                    <span class="text-xs mt-1">Upload</span>
+                </div>
+                <div class="flex-1 h-1 bg-gray-600 relative top-[-10px]"><div id="progress-bar-1" class="h-full bg-indigo-500 w-0 transition-all duration-500"></div></div>
+                <div class="flex-1 flex flex-col items-center relative">
+                    <div id="step-node-2" class="w-8 h-8 rounded-full flex items-center justify-center font-bold z-10 transition-all duration-300">2</div>
+                    <span class="text-xs mt-1">Pick Color</span>
+                </div>
+                <div class="flex-1 h-1 bg-gray-600 relative top-[-10px]"><div id="progress-bar-2" class="h-full bg-indigo-500 w-0 transition-all duration-500"></div></div>
+                <div class="flex-1 flex flex-col items-center relative">
+                    <div id="step-node-3" class="w-8 h-8 rounded-full flex items-center justify-center font-bold z-10 transition-all duration-300">3</div>
+                    <span class="text-xs mt-1">Results</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="p-6">
+            <!-- Step 1: Upload Image -->
+            <div id="step-1">
+                <h2 class="text-lg font-semibold mb-4 text-center">Select an Image Source</h2>
+                <p class="text-center text-gray-400 mb-6">Upload a photo from your device or use your camera to take a new one.</p>
+                <div class="space-y-4">
+                    <button id="upload-button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        <span>Upload Image</span>
+                    </button>
+                    <button id="photo-button" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>Take a Photo</span>
+                    </button>
+                    <input type="file" id="file-input" accept="image/*">
+                </div>
+            </div>
+
+            <!-- Step 2: Pick Color -->
+            <div id="step-2" class="hidden">
+                <h2 class="text-lg font-semibold mb-2 text-center">Select a Color</h2>
+                <p class="text-center text-gray-400 mb-4 text-sm">Tap on the image or edit the LAB values below.</p>
+                <div class="relative w-full aspect-square bg-black rounded-lg overflow-hidden mb-4 border-2 border-gray-700 cursor-crosshair flex items-center justify-center">
+                    <canvas id="main-canvas"></canvas>
+                    <canvas id="picker-overlay-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
+                    <div id="loupe-container">
+                        <canvas id="loupe-canvas"></canvas>
+                        <div id="loupe-crosshair"></div>
+                    </div>
+                </div>
+                <div class="mb-4 relative">
+                    <label for="radius-slider" class="block mb-2 text-sm font-medium text-gray-300">
+                        Picker Radius: <span id="radius-value">5</span>px
+                        <button id="radius-info-button" class="ml-1 text-gray-400 hover:text-white transition-colors focus:outline-none">&#9432;</button>
+                    </label>
+                    <input id="radius-slider" type="range" min="1" max="50" value="5" class="w-full bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    <div id="radius-tooltip" class="hidden absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-gray-900 text-white text-xs rounded py-1 px-2 z-10 shadow-lg border border-gray-700">
+                        Averages colors in an area. Use a larger radius for textures, smaller for precise colors.
+                    </div>
+                </div>
+                <div class="bg-gray-700 p-3 rounded-lg mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div id="color-swatch" class="w-10 h-10 rounded-md border-2 border-gray-500 bg-gray-600 transition-colors"></div>
+                        <div>
+                            <span class="text-sm text-gray-400">Selected Color</span>
+                            <p id="hex-value" class="font-mono font-bold text-lg">#-- -- --</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-700 p-3 rounded-lg">
+                     <label class="block mb-2 text-sm font-medium text-gray-300">Editable LAB Values</label>
+                     <div class="grid grid-cols-3 gap-2">
+                        <input type="number" id="l-input" step="0.1" class="w-full bg-gray-800 text-white text-center rounded p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="L*">
+                        <input type="number" id="a-input" step="0.1" class="w-full bg-gray-800 text-white text-center rounded p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="a*">
+                        <input type="number" id="b-input" step="0.1" class="w-full bg-gray-800 text-white text-center rounded p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="b*">
+                     </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Results -->
+            <div id="step-3" class="hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold">Analysis Results</h2>
+                    <button id="info-button" class="text-gray-400 hover:text-white transition-colors focus:outline-none">&#9432;</button>
+                </div>
+                <div id="gauge-container" class="relative w-full max-w-xs mx-auto mb-6 cursor-pointer">
+                    <svg viewBox="0 0 100 60" class="w-full">
+                        <path id="gauge-background" d="M10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#374151" stroke-width="8" stroke-linecap="round"/>
+                        <path id="gauge-progress" d="M10 50 A 40 40 0 0 1 90 50" fill="none" stroke="url(#gaugeGradient)" stroke-width="8" stroke-linecap="round"/>
+                        <text x="10" y="59" text-anchor="middle" fill="#9ca3af" font-size="6">0</text>
+                        <text x="50" y="59" text-anchor="middle" fill="#9ca3af" font-size="6">350</text>
+                        <text x="90" y="59" text-anchor="middle" fill="#9ca3af" font-size="6">700</text>
+                        <defs><linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#34d399" /><stop offset="50%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#ef4444" /></linearGradient></defs>
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-end pb-4 pointer-events-none">
+                        <div class="relative">
+                            <span id="concentration-value" class="text-4xl font-extrabold tracking-tight">--.--</span>
+                            <span id="comparison-container" class="absolute -top-4 -right-2 text-sm font-bold"></span>
+                        </div>
+                        <span class="text-sm text-gray-400">µg/L (ppb)</span>
+                    </div>
+                    <div id="gauge-tooltip" class="hidden absolute bg-gray-900 text-white text-xs rounded py-1 px-2 z-10 shadow-lg border border-gray-700 pointer-events-none"></div>
+                </div>
+                
+                <!-- UPDATED CALIBRATION SECTION -->
+                <div class="bg-gray-700 p-4 rounded-lg mb-4">
+                    <h3 class="font-semibold mb-2">Calibration</h3>
+                    <p class="text-xs text-gray-400 mb-3">To correct for bias, analyze a known sample, enter its value below, and press 'Set'. This offset will persist for future measurements.</p>
+                    <div class="flex items-center space-x-2">
+                        <input type="number" id="reference-input" placeholder="Reference Value (e.g., 100)" class="w-full bg-gray-800 text-white rounded p-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" step="0.1">
+                        <button id="calibrate-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg transition-all flex-shrink-0">Set</button>
+                        <button id="reset-calibration-button" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-all flex-shrink-0">Reset</button>
+                    </div>
+                    <p class="text-sm mt-2 text-gray-300">Current Offset: <span id="offset-display" class="font-mono font-bold">0.00</span> µg/L</p>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="formula-select" class="block mb-2 text-sm font-medium text-gray-300">Calculation Formula</label>
+                    <select id="formula-select" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5 transition-all">
+                        <option value="b_star">Estimate with b*</option><option value="chroma">Estimate with Chroma</option><option value="luminosity">Estimate with Luminosity Correction</option>
+                    </select>
+                </div>
+                <div class="bg-gray-700 p-4 rounded-lg">
+                    <h3 class="font-semibold mb-3">Color Details</h3>
+                    <div class="flex items-center space-x-4">
+                        <div id="result-color-swatch" class="w-12 h-12 rounded-lg border-2 border-gray-500 flex-shrink-0 transition-colors"></div>
+                        <div class="grid grid-cols-3 gap-2 text-center font-mono text-sm w-full">
+                            <div class="bg-gray-800 p-2 rounded flex flex-col justify-center min-w-0"><span class="text-xs text-gray-400">RGB</span><p id="rgb-details" class="truncate">--,--,--</p></div>
+                            <div class="bg-gray-800 p-2 rounded flex flex-col justify-center min-w-0"><span class="text-xs text-gray-400">HEX</span><p id="hex-details" class="truncate">#------</p></div>
+                            <div class="bg-gray-800 p-2 rounded flex flex-col justify-center min-w-0"><span class="text-xs text-gray-400">LAB</span><p id="lab-details" class="truncate">--,--,--</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer / Navigation -->
+        <footer id="navigation" class="p-6 border-t border-gray-700 hidden">
+            <div class="flex justify-between">
+                <button id="back-button" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100">Back</button>
+                <button id="continue-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:scale-100" disabled>Continue</button>
+            </div>
+        </footer>
+        
+        <div class="text-center text-xs text-gray-500 py-3 border-t border-gray-700">developed by: Ganesh Khadanga</div>
+    </div>
+    
+    <!-- Info Modal -->
+    <div id="info-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+        <div class="modal-content bg-gray-800 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto hidden">
+            <div class="p-6 border-b border-gray-700 flex justify-between items-center"><h2 class="text-lg font-semibold">Formula Explanations</h2><button id="close-modal-button" class="text-gray-400 hover:text-white text-2xl font-bold">&times;</button></div>
+            <div id="info-modal-content" class="p-6"></div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // STATE
+    let currentStep = 1, uploadedImage = null, pickerRadius = 5;
+    let selectedColor = { r: 0, g: 0, b: 0, picked: false };
+    let imageRenderInfo = { offsetX: 0, offsetY: 0, ratio: 1 };
+    let previousConcentration = 0, calibrationOffset = 0;
+
+    // DOM ELEMENTS
+    const stepDivs = [document.getElementById('step-1'), document.getElementById('step-2'), document.getElementById('step-3')];
+    const fileInput = document.getElementById('file-input');
+    const mainCanvas = document.getElementById('main-canvas'), mainCtx = mainCanvas.getContext('2d', { willReadFrequently: true });
+    const pickerOverlayCanvas = document.getElementById('picker-overlay-canvas'), pickerOverlayCtx = pickerOverlayCanvas.getContext('2d');
+    const loupeContainer = document.getElementById('loupe-container'), loupeCanvas = document.getElementById('loupe-canvas'), loupeCtx = loupeCanvas.getContext('2d');
+    const radiusSlider = document.getElementById('radius-slider'), radiusValue = document.getElementById('radius-value'), radiusInfoButton = document.getElementById('radius-info-button'), radiusTooltip = document.getElementById('radius-tooltip');
+    const colorSwatch = document.getElementById('color-swatch'), hexValue = document.getElementById('hex-value');
+    const labInputs = { l: document.getElementById('l-input'), a: document.getElementById('a-input'), b: document.getElementById('b-input') };
+    const continueButton = document.getElementById('continue-button');
+    const concentrationValue = document.getElementById('concentration-value'), comparisonContainer = document.getElementById('comparison-container');
+    const gaugeContainer = document.getElementById('gauge-container'), gaugeBackground = document.getElementById('gauge-background'), gaugeProgress = document.getElementById('gauge-progress'), gaugeTooltip = document.getElementById('gauge-tooltip');
+    const formulaSelect = document.getElementById('formula-select');
+    const resultColorSwatch = document.getElementById('result-color-swatch'), resultDetails = { rgb: document.getElementById('rgb-details'), hex: document.getElementById('hex-details'), lab: document.getElementById('lab-details') };
+    const infoModal = document.getElementById('info-modal'), infoModalContent = infoModal.querySelector('.modal-content');
+    const stepNodes = [document.getElementById('step-node-1'), document.getElementById('step-node-2'), document.getElementById('step-node-3')];
+    const progressBars = [document.getElementById('progress-bar-1'), document.getElementById('progress-bar-2')];
+    
+    // CALIBRATION DOM ELEMENTS
+    const referenceInput = document.getElementById('reference-input');
+    const calibrateButton = document.getElementById('calibrate-button');
+    const resetCalibrationButton = document.getElementById('reset-calibration-button');
+    const offsetDisplay = document.getElementById('offset-display');
+
+
+    // --- INITIAL SETUP ---
+    const gaugePathLength = gaugeProgress.getTotalLength();
+    [gaugeProgress, gaugeBackground].forEach(el => { el.style.strokeDasharray = gaugePathLength; el.style.strokeDashoffset = gaugePathLength; });
+    gaugeBackground.style.strokeDasharray = 1; gaugeBackground.style.strokeDashoffset = 1;
+
+    // --- EVENT LISTENERS ---
+    document.getElementById('upload-button').addEventListener('click', () => fileInput.click());
+    document.getElementById('photo-button').addEventListener('click', () => { fileInput.setAttribute('capture', 'environment'); fileInput.click(); });
+    fileInput.addEventListener('change', (e) => { const file = e.target.files[0]; if (file) handleImageUpload(file); });
+    radiusSlider.addEventListener('input', (e) => { pickerRadius = parseInt(e.target.value, 10); radiusValue.textContent = pickerRadius; });
+    ['mouseenter', 'focus'].forEach(e => radiusInfoButton.addEventListener(e, () => radiusTooltip.classList.remove('hidden')));
+    ['mouseleave', 'blur'].forEach(e => radiusInfoButton.addEventListener(e, () => radiusTooltip.classList.add('hidden')));
+    mainCanvas.parentElement.addEventListener('mousemove', handleCanvasInteraction);
+    mainCanvas.parentElement.addEventListener('touchmove', handleCanvasInteraction, { passive: false });
+    mainCanvas.parentElement.addEventListener('click', pickColorFromCanvas);
+    mainCanvas.parentElement.addEventListener('touchend', pickColorFromCanvas);
+    mainCanvas.parentElement.addEventListener('mouseenter', () => loupeContainer.style.display = 'block');
+    mainCanvas.parentElement.addEventListener('mouseleave', () => { loupeContainer.style.display = 'none'; pickerOverlayCtx.clearRect(0, 0, pickerOverlayCanvas.width, pickerOverlayCanvas.height); });
+    Object.values(labInputs).forEach(input => input.addEventListener('input', handleLabInputChange));
+    continueButton.addEventListener('click', () => { if (currentStep < 3) navigateToStep(currentStep + 1); else resetApp(); });
+    document.getElementById('back-button').addEventListener('click', () => { if (currentStep > 1) navigateToStep(currentStep - 1); });
+    formulaSelect.addEventListener('change', calculateAndDisplayResults);
+    calibrateButton.addEventListener('click', handleCalibration);
+    resetCalibrationButton.addEventListener('click', handleResetCalibration);
+    document.getElementById('info-button').addEventListener('click', showInfoModal);
+    document.getElementById('close-modal-button').addEventListener('click', hideInfoModal);
+    infoModal.addEventListener('click', (e) => { if (e.target === infoModal) hideInfoModal(); });
+    gaugeContainer.addEventListener('mousemove', handleGaugeInteraction);
+    gaugeContainer.addEventListener('touchmove', handleGaugeInteraction, { passive: false });
+    gaugeContainer.addEventListener('mouseleave', () => gaugeTooltip.classList.add('hidden'));
+
+    // --- CORE FUNCTIONS ---
+    function navigateToStep(step) {
+        currentStep = step;
+        stepDivs.forEach((div, i) => { const isVisible = (i + 1) === step; div.classList.toggle('hidden', !isVisible); div.classList.toggle('step-content', isVisible); });
+        document.getElementById('navigation').classList.toggle('hidden', step === 1);
+        updateProgressBar(step);
+        if (step === 2) { setupCanvas(); continueButton.disabled = !selectedColor.picked; continueButton.textContent = 'Continue'; } 
+        else if (step === 3) { calculateAndDisplayResults(); continueButton.disabled = false; continueButton.textContent = 'Start Over'; setTimeout(() => gaugeBackground.classList.add('draw'), 100); } 
+        else { continueButton.disabled = true; continueButton.textContent = 'Continue'; gaugeBackground.classList.remove('draw'); }
+    }
+    function handleImageUpload(file) { const reader = new FileReader(); reader.onload = (e) => { uploadedImage = new Image(); uploadedImage.onload = () => { selectedColor.picked = false; navigateToStep(2); }; uploadedImage.src = e.target.result; }; reader.readAsDataURL(file); }
+    function setupCanvas() {
+        if (!uploadedImage) return;
+        const container = mainCanvas.parentElement, containerSize = container.clientWidth, imgWidth = uploadedImage.naturalWidth, imgHeight = uploadedImage.naturalHeight;
+        const ratio = Math.min(containerSize / imgWidth, containerSize / imgHeight);
+        const drawWidth = imgWidth * ratio, drawHeight = imgHeight * ratio;
+        mainCanvas.style.width = `${drawWidth}px`; mainCanvas.style.height = `${drawHeight}px`;
+        mainCanvas.width = imgWidth; mainCanvas.height = imgHeight;
+        pickerOverlayCanvas.width = containerSize; pickerOverlayCanvas.height = containerSize;
+        imageRenderInfo = { offsetX: (containerSize - drawWidth) / 2, offsetY: (containerSize - drawHeight) / 2, drawWidth, drawHeight, ratio };
+        mainCtx.drawImage(uploadedImage, 0, 0);
+    }
+    function getCanvasCoords(event) {
+        const container = mainCanvas.parentElement, rect = container.getBoundingClientRect();
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX, clientY = event.touches ? event.touches[0].clientY : event.clientY;
+        const displayX = clientX - rect.left, displayY = clientY - rect.top;
+        const canvasX = (displayX - imageRenderInfo.offsetX) / imageRenderInfo.ratio, canvasY = (displayY - imageRenderInfo.offsetY) / imageRenderInfo.ratio;
+        return { canvasX, canvasY, displayX, displayY };
+    }
+    function handleCanvasInteraction(event) {
+        event.preventDefault();
+        const { canvasX, canvasY, displayX, displayY } = getCanvasCoords(event);
+        if (canvasX >= 0 && canvasX <= mainCanvas.width && canvasY >= 0 && canvasY <= mainCanvas.height) { updateLoupe(canvasX, canvasY, displayX, displayY); drawPickerCircle(displayX, displayY); }
+    }
+    function updateLoupe(canvasX, canvasY, displayX, displayY) {
+        loupeContainer.style.left = `${displayX}px`; loupeContainer.style.top = `${displayY}px`;
+        const container = mainCanvas.parentElement, rect = container.getBoundingClientRect();
+        const projX = (displayX / rect.width > 0.5) ? -1 : 1, projY = (displayY / rect.height > 0.5) ? -1 : 1;
+        const offsetX = projX * 75, offsetY = projY * 75; // 75 = 60 (half loupe) + 15 (padding)
+        loupeContainer.style.setProperty('--loupe-offset-x', `${offsetX}%`); loupeContainer.style.setProperty('--loupe-offset-y', `${offsetY}%`);
+        const zoomFactor = 5, sourceSize = 120 / zoomFactor;
+        loupeCtx.imageSmoothingEnabled = false; loupeCtx.clearRect(0, 0, loupeCanvas.width, loupeCanvas.height);
+        loupeCtx.drawImage(mainCanvas, canvasX - sourceSize / 2, canvasY - sourceSize / 2, sourceSize, sourceSize, 0, 0, loupeCanvas.width, loupeCanvas.height);
+    }
+    function drawPickerCircle(displayX, displayY) {
+        pickerOverlayCtx.clearRect(0, 0, pickerOverlayCanvas.width, pickerOverlayCanvas.height);
+        pickerOverlayCtx.beginPath(); pickerOverlayCtx.arc(displayX, displayY, pickerRadius * imageRenderInfo.ratio, 0, 2 * Math.PI, false);
+        pickerOverlayCtx.lineWidth = 2; pickerOverlayCtx.strokeStyle = 'white'; pickerOverlayCtx.setLineDash([]); pickerOverlayCtx.stroke();
+        pickerOverlayCtx.setLineDash([5, 5]); pickerOverlayCtx.strokeStyle = 'black'; pickerOverlayCtx.stroke();
+    }
+    function pickColorFromCanvas(event) {
+        const { canvasX, canvasY } = getCanvasCoords(event.touches ? event.changedTouches[0] : event);
+        if (canvasX < 0 || canvasX > mainCanvas.width || canvasY < 0 || canvasY > mainCanvas.height) return;
+        const avgColor = getAverageColor(Math.round(canvasX), Math.round(canvasY), pickerRadius);
+        updateSelectedColor(avgColor.r, avgColor.g, avgColor.b, 'canvas');
+        triggerHapticFeedback();
+    }
+    function handleLabInputChange() {
+        const l = parseFloat(labInputs.l.value), a = parseFloat(labInputs.a.value), b = parseFloat(labInputs.b.value);
+        if (isNaN(l) || isNaN(a) || isNaN(b)) return;
+        const { r, g, b: rgbB } = labToRgb(l, a, b);
+        updateSelectedColor(r, g, rgbB, 'input');
+    }
+    function updateSelectedColor(r, g, b, source) {
+        selectedColor = { r, g, b, picked: true };
+        const hex = rgbToHex(r, g, b);
+        colorSwatch.style.backgroundColor = hex; hexValue.textContent = hex.toUpperCase();
+        if (source !== 'input') { const lab = rgbToLab(r, g, b); labInputs.l.value = lab.l.toFixed(1); labInputs.a.value = lab.a.toFixed(1); labInputs.b.value = lab.b.toFixed(1); }
+        continueButton.disabled = false;
+    }
+    function getAverageColor(x, y, radius) {
+        let r = 0, g = 0, b = 0, count = 0;
+        const startX = Math.max(0, x - radius), startY = Math.max(0, y - radius);
+        const width = Math.min(mainCanvas.width - startX, radius * 2), height = Math.min(mainCanvas.height - startY, radius * 2);
+        if (width <= 0 || height <= 0) return {r:0,g:0,b:0};
+        const data = mainCtx.getImageData(startX, startY, width, height).data;
+        for (let i = 0; i < data.length; i += 4) {
+            const pixelX = startX + (i / 4) % width, pixelY = startY + Math.floor((i / 4) / width);
+            const dx = pixelX - x, dy = pixelY - y;
+            if (dx * dx + dy * dy <= radius * radius) { r += data[i]; g += data[i + 1]; b += data[i + 2]; count++; }
+        }
+        return { r: count > 0 ? Math.round(r / count) : 0, g: count > 0 ? Math.round(g / count) : 0, b: count > 0 ? Math.round(b / count) : 0 };
+    }
+    function calculateAndDisplayResults() {
+        if (!selectedColor.picked) return;
+        previousConcentration = parseFloat(concentrationValue.textContent) || 0;
+        const { r, g, b } = selectedColor, lab = rgbToLab(r, g, b), { l: L, a, b: b_star } = lab;
+        const chroma = Math.sqrt(a * a + b_star * b_star); let concentration = 0;
+        const formula = formulaSelect.value;
+        if (formula === 'b_star') concentration = 2.0018 * b_star + 33.2537;
+        else if (formula === 'chroma') concentration = 2.6796 * chroma - 73.7383;
+        else if (formula === 'luminosity') concentration = -60.3039 + 2.6889 * chroma - 0.2171 * L;
+
+        // Apply the calibration offset
+        concentration -= calibrationOffset;
+        
+        concentration = Math.max(0, Math.min(700, concentration));
+        animateValue(concentrationValue, previousConcentration, concentration, 1000);
+        showResultComparison(concentration, previousConcentration);
+        updateGauge(concentration);
+        const hex = rgbToHex(r, g, b);
+        resultColorSwatch.style.backgroundColor = hex;
+        resultDetails.rgb.textContent = `${r},${g},${b}`; resultDetails.hex.textContent = hex.toUpperCase(); resultDetails.lab.textContent = `${L.toFixed(1)},${a.toFixed(1)},${b_star.toFixed(1)}`;
+        triggerHapticFeedback(50);
+    }
+    function handleCalibration() {
+        const referenceValue = parseFloat(referenceInput.value);
+        if (isNaN(referenceValue)) {
+            alert('Please enter a valid numeric reference value.'); // Using alert here for simplicity as it's an error state
+            return;
+        }
+
+        // To get the raw, uncalibrated prediction, we must calculate it again without the current offset.
+        const { r, g, b } = selectedColor, lab = rgbToLab(r, g, b), { l: L, a, b: b_star } = lab;
+        const chroma = Math.sqrt(a * a + b_star * b_star); let uncalibratedConcentration = 0;
+        const formula = formulaSelect.value;
+        if (formula === 'b_star') uncalibratedConcentration = 2.0018 * b_star + 33.2537;
+        else if (formula === 'chroma') uncalibratedConcentration = 2.6796 * chroma - 73.7383;
+        else if (formula === 'luminosity') uncalibratedConcentration = -60.3039 + 2.6889 * chroma - 0.2171 * L;
+
+        calibrationOffset = uncalibratedConcentration - referenceValue;
+        offsetDisplay.textContent = calibrationOffset.toFixed(2);
+        
+        // Re-run the main calculation function to apply the new offset immediately
+        calculateAndDisplayResults();
+        triggerHapticFeedback();
+    }
+    function handleResetCalibration() {
+        calibrationOffset = 0;
+        referenceInput.value = '';
+        offsetDisplay.textContent = '0.00';
+        if(selectedColor.picked) calculateAndDisplayResults();
+        triggerHapticFeedback();
+    }
+    function resetApp() { 
+        uploadedImage = null; 
+        selectedColor = { r: 0, g: 0, b: 0, picked: false }; 
+        fileInput.value = ''; 
+        colorSwatch.style.backgroundColor = '#4b5563'; 
+        hexValue.textContent = '#-- -- --'; 
+        Object.values(labInputs).forEach(input => input.value = ''); 
+        pickerOverlayCtx.clearRect(0, 0, pickerOverlayCanvas.width, pickerOverlayCanvas.height); 
+        
+        // Clear reference input for the next calibration, but keep the offset.
+        referenceInput.value = '';
+        
+        navigateToStep(1); 
+    }
+    
+    // --- UI & ANIMATION FUNCTIONS ---
+    function updateProgressBar(step) {
+        stepNodes.forEach((node, i) => { const isActive = i < step, isCurrent = (i + 1) === step; node.classList.toggle('bg-indigo-500', isActive); node.classList.toggle('bg-gray-600', !isActive); node.classList.toggle('step-node-active', isCurrent); node.parentElement.querySelector('span').classList.toggle('text-gray-300', isActive); node.parentElement.querySelector('span').classList.toggle('text-gray-400', !isActive); });
+        progressBars.forEach((bar, i) => bar.style.width = i < step - 1 ? '100%' : '0%');
+    }
+    function updateGauge(value) { const percentage = Math.max(0, Math.min(1, value / 700)); gaugeProgress.style.strokeDashoffset = gaugePathLength * (1 - percentage); }
+    function animateValue(el, start, end, duration) { let startTimestamp = null; const step = (timestamp) => { if (!startTimestamp) startTimestamp = timestamp; const progress = Math.min((timestamp - startTimestamp) / duration, 1); el.textContent = (progress * (end - start) + start).toFixed(2); if (progress < 1) window.requestAnimationFrame(step); }; window.requestAnimationFrame(step); }
+    function showResultComparison(current, previous) {
+        if (previous === 0) return; // Don't show on first calculation
+        const diff = current - previous;
+        const indicator = document.createElement('span');
+        indicator.textContent = `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}`;
+        indicator.className = `absolute comparison-indicator ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`;
+        comparisonContainer.innerHTML = '';
+        comparisonContainer.appendChild(indicator);
+    }
+    function handleGaugeInteraction(event) {
+        event.preventDefault();
+        const rect = gaugeContainer.getBoundingClientRect();
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+        const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+        const x = clientX - rect.left - (rect.width / 2);
+        const y = clientY - rect.top - (rect.height * (50/60)); // 50 is center of arc in viewbox
+        let angle = Math.atan2(y, x);
+        if (angle > -Math.PI / 2 - 0.1 && angle < -Math.PI / 2 + 0.1) return; // Dead zone at top
+        let percentage = (angle + Math.PI) / Math.PI; // 0 to 1 from left to right
+        percentage = Math.max(0, Math.min(1, percentage));
+        const value = percentage * 700;
+        gaugeTooltip.classList.remove('hidden');
+        gaugeTooltip.textContent = `${value.toFixed(1)} µg/L`;
+        const tooltipX = (clientX - rect.left) - (gaugeTooltip.offsetWidth / 2);
+        const tooltipY = (clientY - rect.top) - gaugeTooltip.offsetHeight - 10;
+        gaugeTooltip.style.transform = `translate(${tooltipX}px, ${tooltipY}px)`;
+    }
+    function triggerHapticFeedback(duration = 10) { if (window.navigator.vibrate) window.navigator.vibrate(duration); }
+    function showInfoModal() { infoModal.classList.remove('hidden'); setTimeout(() => infoModalContent.classList.remove('hidden'), 10); }
+    function hideInfoModal() { infoModalContent.classList.add('hidden'); setTimeout(() => infoModal.classList.add('hidden'), 200); }
+    function initializeInfoModal() { const md = `## Estimate with b*\nThis is a simple linear model based on the b* value from the CIELAB color space.\n\`\`\`\nConcentration = 2.0018 * b* + 33.2537\n\`\`\`\n\n## Estimate with Chroma\nThis model uses Chroma (C*), which represents the "vividness" of the color.\n\`\`\`\nChroma = sqrt(a*² + b*²)\nConcentration = 2.6796 * Chroma - 73.7383\n\`\`\`\n\n## Estimate with Luminosity Correction\nThis is a multiple linear regression model that uses both Chroma and Luminosity (L*).\n\`\`\`\nConcentration = -60.3039 + 2.6889 * Chroma - 0.2171 * L*\n\`\`\``; document.getElementById('info-modal-content').innerHTML = marked.parse(md); }
+    
+    // --- UTILITY FUNCTIONS (COLOR CONVERSIONS) ---
+    function rgbToHex(r, g, b) { return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).padStart(6, '0'); }
+    function rgbToLab(r, g, b) { let R = r / 255, G = g / 255, B = b / 255; R = (R > 0.04045) ? Math.pow((R + 0.055) / 1.055, 2.4) : R / 12.92; G = (G > 0.04045) ? Math.pow((G + 0.055) / 1.055, 2.4) : G / 12.92; B = (B > 0.04045) ? Math.pow((B + 0.055) / 1.055, 2.4) : B / 12.92; R *= 100; G *= 100; B *= 100; let X = R * 0.4124564 + G * 0.3575761 + B * 0.1804375, Y = R * 0.2126729 + G * 0.7151522 + B * 0.0721750, Z = R * 0.0193339 + G * 0.1191920 + B * 0.9503041; let refX = 95.047, refY = 100.000, refZ = 108.883; X /= refX; Y /= refY; Z /= refZ; X = (X > 0.008856) ? Math.pow(X, 1 / 3) : (7.787 * X) + (16 / 116); Y = (Y > 0.008856) ? Math.pow(Y, 1 / 3) : (7.787 * Y) + (16 / 116); Z = (Z > 0.008856) ? Math.pow(Z, 1 / 3) : (7.787 * Z) + (16 / 116); return { l: (116 * Y) - 16, a: 500 * (X - Y), b: 200 * (Y - Z) }; }
+    function labToRgb(l, a, b) { let y = (l + 16) / 116, x = a / 500 + y, z = y - b / 200; const y3 = y**3, x3 = x**3, z3 = z**3; y = y3 > 0.008856 ? y3 : (y - 16 / 116) / 7.787; x = x3 > 0.008856 ? x3 : (x - 16 / 116) / 7.787; z = z3 > 0.008856 ? z3 : (z - 16 / 116) / 7.787; let refX = 95.047, refY = 100.000, refZ = 108.883; x *= refX; y *= refY; z *= refZ; let r = x * 3.2406 + y * -1.5372 + z * -0.4986, g = x * -0.9689 + y * 1.8758 + z * 0.0415, b_rgb = x * 0.0557 + y * -0.2040 + z * 1.0570; r = (r > 0.0031308) ? (1.055 * r**(1 / 2.4) - 0.055) : 12.92 * r; g = (g > 0.0031308) ? (1.055 * g**(1 / 2.4) - 0.055) : 12.92 * g; b_rgb = (b_rgb > 0.0031308) ? (1.055 * b_rgb**(1 / 2.4) - 0.055) : 12.92 * b_rgb; const clamp = (val) => Math.max(0, Math.min(255, Math.round(val * 255))); return { r: clamp(r), g: clamp(g), b: clamp(b_rgb) }; }
+
+    // --- INITIALIZATION ---
+    navigateToStep(1); initializeInfoModal();
+});
+</script>
+</body>
+</html>
