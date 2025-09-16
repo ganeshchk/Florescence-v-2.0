@@ -51,6 +51,11 @@
         @keyframes fade-up-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-20px); } }
         .comparison-indicator { animation: fade-up-out 1.5s ease-out forwards; }
     </style>
+     <link rel="manifest" href="/manifest.json">
+  <!-- ios support -->
+  <link rel="apple-touch-icon" href="/img/icons/Icon-96.png">
+  <meta name="apple-mobile-web-app-status-bar" content="#FFE1C4">
+  <meta name="theme-color" content="#FFE1C4">
 </head>
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-4 antialiased">
 
@@ -473,5 +478,6 @@ document.addEventListener('DOMContentLoaded', () => {
     navigateToStep(1); initializeInfoModal();
 });
 </script>
+      <script src="/js/rsw.js"></script>
 </body>
 </html>
