@@ -1,0 +1,39 @@
+{
+  "name": "Ganesh Khadanga",
+  "short_name": "GANESH",
+  "start_url": "/Florescence-v-2.0/index.html",
+  "display": "standalone",
+  "background_color": "#FFE9D2",
+  "theme_color": "#FFE1C4",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/Florescence-v-2.0/img/Icon-72.png",
+      "type": "image/png",
+      "sizes": "72x72"
+    },
+    {
+      "src": "/Florescence-v-2.0/img/Icon-96.png",
+      "type": "image/png",
+      "sizes": "96x96"
+    },
+   
+    {
+      "src": "/Florescence-v-2.0/img/Icon-144.png",
+      "type": "image/png",
+      "sizes": "144x144"
+    },
+
+    {
+      "src": "/Florescence-v-2.0/img/Icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+  
+    {
+      "src": "/Florescence-v-2.0/img/Icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
